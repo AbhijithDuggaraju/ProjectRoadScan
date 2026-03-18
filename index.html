@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RoadScan AI — Road Damage Detection</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --surface2: #1c1c27;
+    --border: #2a2a3d;
+    --accent: #f97316;
+    --accent2: #fb923c;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+    --green: #22c55e;
+    --text: #e8e8f0;
+    --muted: #6b6b85;
+    --font-display: 'Bebas Neue', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(249,115,22,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(249,115,22,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  header {
+    position: relative; z-index: 10;
+    padding: 0 2rem; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,10,15,0.9);
+    backdrop-filter: blur(12px);
+  }
+
+  .logo { font-family: var(--font-display); font-size: 1.8rem; letter-spacing: 2px; color: var(--accent); display: flex; align-items: center; gap: .5rem; }
+  .logo span { color: var(--text); }
+  .header-right { display: flex; align-items: center; gap: 1rem; }
+
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green); box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .hero { position: relative; z-index: 1; padding: 3rem 2rem 1.5rem; text-align: center; }
+  .hero h1 {
+    font-family: var(--font-display); font-size: clamp(3rem,8vw,6rem); letter-spacing: 4px; line-height: 1;
+    background: linear-gradient(135deg, var(--text) 0%, var(--accent) 60%, var(--accent2) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    margin-bottom: .75rem;
+  }
+  .hero p { color: var(--muted); font-size: 1rem; font-weight: 300; letter-spacing: 1px; }
+
+  .tabs {
+    position: relative; z-index: 1;
+    display: flex; padding: 0 2rem;
+    border-bottom: 1px solid var(--border); margin-top: 1.5rem;
+  }
+  .tab-btn {
+    padding: .75rem 1.5rem; background: none; border: none; color: var(--muted);
+    font-family: var(--font-body); font-size: .85rem; font-weight: 500; cursor: pointer;
+    position: relative; transition: color .2s; letter-spacing: .5px; text-transform: uppercase;
+  }
+  .tab-btn.active { color: var(--accent); }
+  .tab-btn.active::after { content:''; position:absolute; bottom:-1px; left:0; right:0; height:2px; background:var(--accent); }
+  .tab-btn:hover:not(.active) { color: var(--text); }
+
+  .content { position: relative; z-index: 1; padding: 2rem; max-width: 1400px; margin: 0 auto; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── UPLOAD ── */
+  .upload-zone {
+    border: 2px dashed var(--border); border-radius: 16px; padding: 2.5rem;
+    text-align: center; cursor: pointer; transition: all .3s; background: var(--surface);
+    position: relative; overflow: hidden;
+  }
+  .upload-zone::before {
+    content:''; position:absolute; inset:0;
+    background: radial-gradient(circle at 50% 50%, rgba(249,115,22,.05) 0%, transparent 70%);
+    opacity:0; transition: opacity .3s;
+  }
+  .upload-zone:hover,.upload-zone.drag-over { border-color: var(--accent); transform: translateY(-2px); }
+  .upload-zone:hover::before,.upload-zone.drag-over::before { opacity:1; }
+  .upload-icon { font-size: 3rem; margin-bottom: 1rem; display: block; }
+  .upload-zone h3 { font-family: var(--font-display); font-size: 1.5rem; letter-spacing: 2px; color: var(--text); margin-bottom: .5rem; }
+  .upload-zone p { color: var(--muted); font-size: .85rem; }
+
+  /* ── GPS SECTION ── */
+  .gps-section {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.25rem; margin-top: 1rem;
+  }
+  .gps-title {
+    font-family: var(--font-display); font-size: .85rem; letter-spacing: 2px;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 1rem;
+  }
+  .gps-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: .75rem; }
+  .gps-field label { display:block; font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:.3rem; }
+  .gps-field input, .loc-input {
+    width:100%; background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: .55rem .75rem; border-radius: 8px;
+    font-family: var(--font-mono); font-size: .8rem; outline: none; transition: border-color .2s;
+  }
+  .loc-input { font-family: var(--font-body); font-size:.85rem; margin-bottom:.75rem; }
+  .gps-field input:focus, .loc-input:focus { border-color: var(--accent); }
+  .loc-label { display:block; font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:.3rem; }
+  .gps-auto-btn {
+    width: 100%; padding: .6rem; background: transparent;
+    border: 1px solid var(--border); color: var(--muted); border-radius: 8px;
+    cursor: pointer; font-family: var(--font-body); font-size: .8rem;
+    transition: all .2s; display:flex; align-items:center; justify-content:center; gap:.4rem;
+  }
+  .gps-auto-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .no-gps-warn {
+    display:none; background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.3);
+    color:#f59e0b; border-radius:8px; padding:.6rem .875rem; font-size:.8rem; margin-top:.75rem;
+  }
+
+  /* ── GRID / CARDS ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+  .card-title { font-family:var(--font-display); font-size:1rem; letter-spacing:2px; color:var(--muted); margin-bottom:1rem; text-transform:uppercase; }
+
+  .stat-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.25rem 1.5rem; position: relative; overflow: hidden;
+  }
+  .stat-card::after { content:''; position:absolute; top:0; left:0; width:3px; height:100%; background: var(--accent-color, var(--accent)); }
+  .stat-label { font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:.4rem; }
+  .stat-value { font-family:var(--font-display); font-size:2.5rem; letter-spacing:2px; line-height:1; color:var(--accent-color, var(--text)); }
+
+  .img-container {
+    border-radius:10px; overflow:hidden; border:1px solid var(--border);
+    background:var(--surface2); aspect-ratio:4/3;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .img-container img { width:100%; height:100%; object-fit:cover; }
+  .img-placeholder { display:flex; flex-direction:column; align-items:center; gap:.5rem; color:var(--muted); font-size:.85rem; }
+
+  .detection-list { display:flex; flex-direction:column; gap:.75rem; margin-top:1rem; }
+  .detection-item {
+    background:var(--surface2); border:1px solid var(--border); border-radius:8px;
+    padding:.875rem 1rem; display:flex; align-items:center; gap:1rem;
+    animation: slideIn .3s ease forwards;
+  }
+  @keyframes slideIn { from{opacity:0;transform:translateX(-10px)} to{opacity:1;transform:translateX(0)} }
+  .severity-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .detection-type { font-weight:500; font-size:.9rem; flex:1; }
+  .detection-conf { font-family:var(--font-mono); font-size:.75rem; color:var(--muted); }
+  .severity-badge { font-size:.65rem; font-weight:600; padding:.2rem .5rem; border-radius:4px; letter-spacing:1px; text-transform:uppercase; }
+  .HIGH   { background:rgba(239,68,68,.15);  color:#ef4444; }
+  .MEDIUM { background:rgba(245,158,11,.15); color:#f59e0b; }
+  .LOW    { background:rgba(34,197,94,.15);  color:#22c55e; }
+
+  .btn {
+    padding:.75rem 1.5rem; border:none; border-radius:8px; cursor:pointer;
+    font-family:var(--font-body); font-weight:500; font-size:.875rem; transition:all .2s;
+    display:inline-flex; align-items:center; gap:.5rem;
+  }
+  .btn-primary { background:var(--accent); color:white; }
+  .btn-primary:hover { background:var(--accent2); transform:translateY(-1px); box-shadow:0 4px 20px rgba(249,115,22,.3); }
+  .btn-outline { background:transparent; color:var(--text); border:1px solid var(--border); }
+  .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; transform:none !important; }
+
+  /* ── MAP ── */
+  #map { height:480px; border-radius:12px; border:1px solid var(--border); overflow:hidden; }
+  .map-legend { display:flex; gap:1.5rem; margin-top:1rem; flex-wrap:wrap; }
+  .leg-item { display:flex; align-items:center; gap:.5rem; font-size:.8rem; color:var(--muted); }
+  .leg-dot { width:12px; height:12px; border-radius:50%; }
+
+  /* ── GPS TABLE ── */
+  .gps-table { width:100%; border-collapse:collapse; font-size:.8rem; margin-top:1rem; }
+  .gps-table th { text-align:left; padding:.6rem .75rem; color:var(--muted); font-weight:500; letter-spacing:.5px; border-bottom:1px solid var(--border); font-size:.7rem; text-transform:uppercase; }
+  .gps-table td { padding:.6rem .75rem; border-bottom:1px solid rgba(255,255,255,.04); }
+  .gps-table tr:hover td { background:var(--surface2); }
+
+  /* ── HISTORY ── */
+  .history-list { display:flex; flex-direction:column; gap:.875rem; }
+  .hist-card {
+    background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+    padding:1.125rem 1.25rem; display:flex; justify-content:space-between;
+    align-items:center; transition:border-color .2s;
+  }
+  .hist-card:hover { border-color:var(--accent); }
+  .hist-loc { font-weight:600; font-size:.95rem; margin-bottom:.3rem; }
+  .hist-meta { font-size:.75rem; color:var(--muted); font-family:var(--font-mono); }
+  .hist-badges { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+  .hist-badge { font-size:.7rem; padding:.2rem .6rem; border-radius:4px; font-weight:600; }
+  .btn-danger { background:transparent; color:var(--red); border:1px solid rgba(239,68,68,.3); padding:.4rem .75rem; border-radius:6px; cursor:pointer; font-size:.75rem; transition:all .2s; }
+  .btn-danger:hover { background:rgba(239,68,68,.1); border-color:var(--red); }
+
+  /* ── REPORT ── */
+  .report-box {
+    background:var(--surface2); border:1px solid var(--border); border-radius:10px;
+    padding:1.5rem; font-family:var(--font-mono); font-size:.8rem; line-height:1.8;
+    color:var(--text); white-space:pre-wrap; min-height:200px; max-height:400px; overflow-y:auto;
+  }
+
+  /* ── CHAT ── */
+  .chat-container { display:flex; flex-direction:column; height:500px; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .chat-messages { flex:1; overflow-y:auto; padding:1.5rem; display:flex; flex-direction:column; gap:1rem; }
+  .chat-message { max-width:80%; padding:.875rem 1.125rem; border-radius:10px; font-size:.875rem; line-height:1.6; animation:fadeUp .3s ease; white-space:pre-wrap; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .chat-message.user { background:var(--accent); color:white; align-self:flex-end; border-bottom-right-radius:2px; }
+  .chat-message.assistant { background:var(--surface2); border:1px solid var(--border); align-self:flex-start; border-bottom-left-radius:2px; }
+  .chat-input-row { display:flex; gap:.75rem; padding:1rem; border-top:1px solid var(--border); background:var(--surface2); }
+  .chat-input { flex:1; background:var(--surface); border:1px solid var(--border); color:var(--text); padding:.7rem 1rem; border-radius:8px; font-family:var(--font-body); font-size:.875rem; outline:none; transition:border-color .2s; }
+  .chat-input:focus { border-color:var(--accent); }
+
+  /* ── MISC ── */
+  .loader { display:none; align-items:center; gap:.5rem; color:var(--muted); font-size:.85rem; margin-top:1rem; }
+  .loader.show { display:flex; }
+  .spinner { width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .empty { text-align:center; padding:3rem; color:var(--muted); }
+  .empty .empty-icon { font-size:2.5rem; margin-bottom:1rem; display:block; }
+  ::-webkit-scrollbar { width:6px; }
+  ::-webkit-scrollbar-track { background:var(--surface); }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background:var(--muted); }
+  .toast { position:fixed; bottom:2rem; right:2rem; background:var(--surface2); border:1px solid var(--border); border-left:3px solid var(--accent); padding:.875rem 1.25rem; border-radius:8px; font-size:.85rem; z-index:1000; transform:translateY(100px); opacity:0; transition:all .3s; }
+  .toast.show { transform:translateY(0); opacity:1; }
+
+  @media(max-width:768px) {
+    .grid-2,.grid-4 { grid-template-columns:1fr; }
+    .hero h1 { font-size:3rem; }
+    .gps-row { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">🛣️ ROAD<span>SCAN</span></div>
+  <div class="header-right">
+    <div class="status-dot" title="System Online"></div>
+  </div>
+</header>
+
+<!-- HERO -->
+<div class="hero">
+  <h1>DAMAGE INTELLIGENCE</h1>
+  <p>AI-powered road damage detection · severity mapping · smart reporting</p>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('detect',this)">📸 Detection</button>
+  <button class="tab-btn" onclick="switchTab('map',this)">🗺️ Map</button>
+  <button class="tab-btn" onclick="switchTab('history',this)">🗂️ History</button>
+  <button class="tab-btn" onclick="switchTab('report',this)">📋 Report</button>
+  <button class="tab-btn" onclick="switchTab('chat',this)">💬 Assistant</button>
+</div>
+
+<div class="content">
+
+  <!-- ═══ TAB: DETECTION ═══ -->
+  <div class="tab-panel active" id="tab-detect">
+    <div class="grid-2" style="margin-bottom:1.5rem">
+
+      <!-- Left: upload + GPS -->
+      <div>
+        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+          <span class="upload-icon">📁</span>
+          <h3>DROP ROAD IMAGE</h3>
+          <p>Click to browse or drag & drop · JPG, PNG supported</p>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleFile(event)"/>
+
+        <!-- GPS inputs — stopPropagation so clicks don't trigger file picker -->
+        <div class="gps-section" onclick="event.stopPropagation()">
+          <div class="gps-title">📍 Location Data</div>
+
+          <label class="loc-label">Location Name</label>
+          <input class="loc-input" id="locationName" type="text" placeholder="e.g. MG Road, Hyderabad"/>
+
+          <div class="gps-row">
+            <div class="gps-field">
+              <label>Latitude</label>
+              <input type="number" id="latInput" placeholder="17.385044" step="any"/>
+            </div>
+            <div class="gps-field">
+              <label>Longitude</label>
+              <input type="number" id="lonInput" placeholder="78.486671" step="any"/>
+            </div>
+          </div>
+
+          <button class="gps-auto-btn" onclick="useDeviceGPS()">📡 Use My Current Location</button>
+          <div class="no-gps-warn" id="noGpsWarn">⚠️ No GPS provided — this scan won't appear on the map or history.</div>
+        </div>
+
+        <div class="loader" id="loader" style="margin-top:1rem">
+          <div class="spinner"></div> Running YOLOv8 detection...
+        </div>
+      </div>
+
+      <!-- Right: original image -->
+      <div>
+        <div class="card-title" style="margin-bottom:.75rem">ORIGINAL IMAGE</div>
+        <div class="img-container" id="originalContainer">
+          <div class="img-placeholder">
+            <span style="font-size:2rem">🖼️</span>
+            <span>Upload an image to begin</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid-4" id="statsRow" style="display:none;margin-bottom:1.5rem">
+      <div class="stat-card" style="--accent-color:var(--text)"><div class="stat-label">Total Detected</div><div class="stat-value" id="statTotal">0</div></div>
+      <div class="stat-card" style="--accent-color:#ef4444"><div class="stat-label">High Severity</div><div class="stat-value" id="statHigh" style="color:#ef4444">0</div></div>
+      <div class="stat-card" style="--accent-color:#f59e0b"><div class="stat-label">Medium Severity</div><div class="stat-value" id="statMed" style="color:#f59e0b">0</div></div>
+      <div class="stat-card" style="--accent-color:#22c55e"><div class="stat-label">Low Severity</div><div class="stat-value" id="statLow" style="color:#22c55e">0</div></div>
+    </div>
+
+    <!-- Results -->
+    <div class="grid-2" id="resultsRow" style="display:none">
+      <div>
+        <div class="card-title">ANNOTATED OUTPUT</div>
+        <div class="img-container"><img id="annotatedImg" src="" alt="Detection Result"/></div>
+      </div>
+      <div>
+        <div class="card-title">DAMAGE INSTANCES</div>
+        <div class="detection-list" id="detectionList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: MAP ═══ -->
+  <div class="tab-panel" id="tab-map">
+    <div class="grid-2" style="margin-bottom:1.5rem">
+      <div class="stat-card" style="--accent-color:#ef4444"><div class="stat-label">🔴 High (all scans)</div><div class="stat-value" id="mapHigh" style="color:#ef4444">0</div></div>
+      <div class="stat-card" style="--accent-color:#f59e0b"><div class="stat-label">🟡 Medium (all scans)</div><div class="stat-value" id="mapMed" style="color:#f59e0b">0</div></div>
+    </div>
+    <div id="map" style="margin-bottom:1rem"></div>
+    <div class="map-legend">
+      <div class="leg-item"><div class="leg-dot" style="background:#ef4444;box-shadow:0 0 8px #ef4444"></div>High Severity</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#f59e0b;box-shadow:0 0 8px #f59e0b"></div>Medium Severity</div>
+      <div class="leg-item"><div class="leg-dot" style="background:#22c55e;box-shadow:0 0 8px #22c55e"></div>Low Severity</div>
+    </div>
+    <div class="card" style="margin-top:1.5rem">
+      <div class="card-title">GPS COORDINATES</div>
+      <table class="gps-table">
+        <thead><tr><th>Type</th><th>Severity</th><th>Confidence</th><th>Location</th><th>Latitude</th><th>Longitude</th></tr></thead>
+        <tbody id="gpsTableBody">
+          <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:2rem">No data — run detection with GPS first</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: HISTORY ═══ -->
+  <div class="tab-panel" id="tab-history">
+    <div class="card">
+      <div class="card-title" style="margin-bottom:1.25rem">SCAN HISTORY</div>
+      <div id="histList"><div class="empty"><span class="empty-icon">📭</span>No scans recorded yet</div></div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: REPORT ═══ -->
+  <div class="tab-panel" id="tab-report">
+    <div style="display:flex;gap:1rem;margin-bottom:1.5rem">
+      <button class="btn btn-primary" onclick="generateReport()" id="reportBtn">⚡ Generate Report</button>
+      <button class="btn btn-outline" onclick="downloadReport()" id="downloadBtn" disabled>📥 Download</button>
+    </div>
+    <div class="card">
+      <div class="card-title">INSPECTION REPORT</div>
+      <div class="report-box" id="reportBox">Report will appear here after generation...</div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: CHAT ═══ -->
+  <div class="tab-panel" id="tab-chat">
+    <div class="chat-container">
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-message assistant">
+          👋 Hi! I'm your road damage assistant. Upload an image with a location, then ask me anything.
+          <br><br>Try: <em>"Which damage is most urgent?"</em> · <em>"Estimate repair costs"</em> · <em>"Give me a summary"</em>
+        </div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" class="chat-input" id="chatInput" placeholder="Ask about road damage..." onkeydown="if(event.key==='Enter') sendChat()"/>
+        <button class="btn btn-primary" onclick="sendChat()">Send →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let damageData = [];
+let mapInstance = null;
+let mapMarkers = [];
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+  if (name === 'map')     { if (!mapInstance) initMap(); else loadMapData(); }
+  if (name === 'history') loadHistory();
+}
+
+// ── TOAST ─────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── DRAG & DROP ───────────────────────────────────────────────────────────────
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0]; if (f) processFile(f);
+});
+function handleFile(e) { const f = e.target.files[0]; if (f) processFile(f); }
+
+// ── GPS ───────────────────────────────────────────────────────────────────────
+function useDeviceGPS() {
+  if (!navigator.geolocation) { showToast('❌ Geolocation not supported'); return; }
+  showToast('📡 Getting location…');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      document.getElementById('latInput').value = pos.coords.latitude.toFixed(6);
+      document.getElementById('lonInput').value = pos.coords.longitude.toFixed(6);
+      showToast('✅ Location captured!');
+    },
+    () => showToast('❌ Could not get location — enter manually')
+  );
+}
+
+// ── DETECT ────────────────────────────────────────────────────────────────────
+async function processFile(file) {
+  // Preview
+  const reader = new FileReader();
+  reader.onload = e => { document.getElementById('originalContainer').innerHTML = `<img src="${e.target.result}" alt="Original"/>`; };
+  reader.readAsDataURL(file);
+
+  const lat  = document.getElementById('latInput').value;
+  const lon  = document.getElementById('lonInput').value;
+  const loc  = document.getElementById('locationName').value;
+  document.getElementById('noGpsWarn').style.display = (!lat || !lon) ? 'block' : 'none';
+
+  document.getElementById('loader').classList.add('show');
+  document.getElementById('statsRow').style.display = 'none';
+  document.getElementById('resultsRow').style.display = 'none';
+
+  const form = new FormData();
+  form.append('file', file);
+  if (lat) form.append('lat', lat);
+  if (lon) form.append('lon', lon);
+  if (loc) form.append('location_name', loc);
+
+  try {
+    const res = await fetch('/detect', { method:'POST', body:form });
+    if (!res.ok) throw new Error('Detection failed');
+    const data = await res.json();
+    damageData = data.detections;
+    renderResults(data, loc);
+    showToast(`✅ Found ${data.summary.total} damage instance(s)`);
+  } catch(err) {
+    showToast('❌ ' + err.message + ' — Is the backend running?');
+  } finally {
+    document.getElementById('loader').classList.remove('show');
+  }
+}
+
+function renderResults(data, loc) {
+  document.getElementById('statTotal').textContent = data.summary.total;
+  document.getElementById('statHigh').textContent  = data.summary.high;
+  document.getElementById('statMed').textContent   = data.summary.medium;
+  document.getElementById('statLow').textContent   = data.summary.low;
+  document.getElementById('statsRow').style.display = 'grid';
+
+  document.getElementById('annotatedImg').src = `data:image/jpeg;base64,${data.annotated_image}`;
+  document.getElementById('resultsRow').style.display = 'grid';
+
+  // Detection list
+  const list = document.getElementById('detectionList');
+  list.innerHTML = '';
+  data.detections.forEach(d => {
+    list.innerHTML += `
+      <div class="detection-item">
+        <div class="severity-dot" style="background:${d.color};box-shadow:0 0 6px ${d.color}"></div>
+        <div class="detection-type">${d.type}</div>
+        <div class="detection-conf">${d.confidence}%</div>
+        <div class="severity-badge ${d.severity}">${d.severity}</div>
+      </div>`;
+  });
+
+  // GPS table
+  const tbody = document.getElementById('gpsTableBody');
+  tbody.innerHTML = '';
+  data.detections.forEach(d => {
+    const icon = d.severity==='HIGH' ? '🔴' : d.severity==='MEDIUM' ? '🟡' : '🟢';
+    const latStr = d.lat != null ? d.lat : '<span style="color:var(--muted)">—</span>';
+    const lonStr = d.lon != null ? d.lon : '<span style="color:var(--muted)">—</span>';
+    tbody.innerHTML += `
+      <tr>
+        <td>${icon} ${d.type}</td>
+        <td><span class="severity-badge ${d.severity}">${d.severity}</span></td>
+        <td style="font-family:var(--font-mono)">${d.confidence}%</td>
+        <td>${loc || '—'}</td>
+        <td style="font-family:var(--font-mono)">${latStr}</td>
+        <td style="font-family:var(--font-mono)">${lonStr}</td>
+      </tr>`;
+  });
+
+  if (mapInstance) loadMapData();
+}
+
+// ── MAP ───────────────────────────────────────────────────────────────────────
+function initMap() {
+  mapInstance = L.map('map').setView([20.5937, 78.9629], 5);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO'
+  }).addTo(mapInstance);
+  loadMapData();
+}
+
+async function loadMapData() {
+  if (!mapInstance) return;
+  mapMarkers.forEach(m => m.remove()); mapMarkers = [];
+
+  try {
+    const res  = await fetch('/map-data');
+    const data = await res.json();
+    if (!data.points || !data.points.length) return;
+
+    data.points.forEach(p => {
+      const color  = p.map_color || '#f97316';
+      const radius = p.radius    || 8;
+      const m = L.circleMarker([p.lat, p.lon], {
+        radius, fillColor: color, color: '#fff', weight: 1.5, opacity: .9, fillOpacity: .85
+      })
+      .bindPopup(`
+        <div style="font-family:'DM Sans',sans-serif;min-width:150px">
+          <b style="color:${color}">${p.severity}</b> — ${p.type}<br>
+          <small style="color:#aaa">Confidence: ${p.confidence}%</small><br>
+          <small style="color:#aaa">${p.location || 'Unknown location'}</small><br>
+          <small style="color:#aaa">${(p.scanned_at||'').split('T')[0]}</small>
+        </div>
+      `)
+      .addTo(mapInstance);
+      mapMarkers.push(m);
+    });
+
+    const group = L.featureGroup(mapMarkers);
+    mapInstance.fitBounds(group.getBounds().pad(0.25));
+
+    document.getElementById('mapHigh').textContent = data.points.filter(p=>p.severity==='HIGH').length;
+    document.getElementById('mapMed').textContent  = data.points.filter(p=>p.severity==='MEDIUM').length;
+  } catch(e) { console.error('Map error:', e); }
+}
+
+// ── HISTORY ───────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  try {
+    const res   = await fetch('/scans');
+    const scans = await res.json();
+    const el    = document.getElementById('histList');
+    if (!scans.length) { el.innerHTML = '<div class="empty"><span class="empty-icon">📭</span>No scans recorded yet</div>'; return; }
+    el.innerHTML = '<div class="history-list">' + scans.map(s => `
+      <div class="hist-card">
+        <div>
+          <div class="hist-loc">📍 ${s.location || 'Unknown location'}</div>
+          <div class="hist-meta">Scan #${s.id} · ${(s.scanned_at||'').replace('T',' ').slice(0,16)}${s.lat ? ` · (${s.lat}, ${s.lon})` : ' · no GPS'}</div>
+        </div>
+        <div class="hist-badges">
+          <span class="hist-badge" style="background:rgba(255,255,255,.06);color:var(--text)">Total: ${s.total}</span>
+          <span class="hist-badge HIGH">🔴 ${s.high}</span>
+          <span class="hist-badge MEDIUM">🟡 ${s.medium}</span>
+          <span class="hist-badge LOW">🟢 ${s.low}</span>
+          <button class="btn-danger" onclick="deleteScan(${s.id})">🗑 Delete</button>
+        </div>
+      </div>`).join('') + '</div>';
+  } catch(e) { console.error(e); }
+}
+
+async function deleteScan(id) {
+  if (!confirm('Delete this scan from the database?')) return;
+  await fetch(`/scans/${id}`, {method:'DELETE'});
+  showToast('🗑 Scan deleted'); loadHistory();
+}
+
+// ── REPORT ────────────────────────────────────────────────────────────────────
+async function generateReport() {
+  const btn = document.getElementById('reportBtn');
+  btn.disabled = true; btn.textContent = '⏳ Generating…';
+  try {
+    const res  = await fetch('/report', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({detections:damageData})});
+    const data = await res.json();
+    document.getElementById('reportBox').textContent = data.report;
+    document.getElementById('downloadBtn').disabled = false;
+    showToast('📋 Report generated!');
+  } catch {
+    document.getElementById('reportBox').textContent = 'Error generating report. Is the backend running?';
+  } finally { btn.disabled=false; btn.textContent='⚡ Generate Report'; }
+}
+
+function downloadReport() {
+  const blob = new Blob([document.getElementById('reportBox').textContent], {type:'text/plain'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='road_damage_report.txt'; a.click();
+}
+
+// ── CHAT ──────────────────────────────────────────────────────────────────────
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  const msg   = input.value.trim(); if (!msg) return;
+  input.value = '';
+  const msgs = document.getElementById('chatMessages');
+  msgs.innerHTML += `<div class="chat-message user">${msg}</div>`;
+
+  const typing = document.createElement('div');
+  typing.className = 'chat-message assistant'; typing.textContent = '…';
+  msgs.appendChild(typing); msgs.scrollTop = msgs.scrollHeight;
+
+  try {
+    const res  = await fetch('/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message:msg, damage_data:damageData})});
+    const data = await res.json();
+    typing.textContent = data.response;
+  } catch { typing.textContent = '❌ Backend not reachable.'; }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+</script>
+</body>
+</html>
