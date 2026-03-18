@@ -35,12 +35,12 @@ app.add_middleware(
 )
 
 # ── Load Model ──────────────────────────────────────────────────────────────
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "best.pt")
+MODEL_PATH = "best.pt"
 
 if not os.path.exists(MODEL_PATH):
     raise RuntimeError(
         f"Model file not found at {MODEL_PATH}. "
-        "Place best.pt in the parent directory before starting the server."
+        "Place best.pt in the same directory before starting the server."
     )
 
 model = YOLO(MODEL_PATH)
